@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>VELOCITY // Net Diagnostic</title>
 
-<!-- S-Captcha Widget Integration -->
+<!-- S-Captcha Widget Script Integration -->
 <script src="https://www.scaptua.duckdns.org/3-widgit.js" async defer></script>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -178,7 +178,25 @@
     min-height:16px;
   }
 
-  .cta-row{ margin-top:22px; display:flex; flex-direction:column; gap:12px; width:100%; max-width:420px; align-items:center; }
+  .cta-row{ 
+    margin-top:18px; 
+    display:flex; 
+    flex-direction:column; 
+    gap:14px; 
+    width:100%; 
+    max-width:420px; 
+    align-items:center; 
+  }
+
+  /* Captcha Box Layout Fix */
+  .captcha-wrapper {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 75px;
+  }
+
   #startBtn{
     width:100%;
     cursor:pointer;
@@ -195,11 +213,17 @@
     position:relative;
     overflow:hidden;
     box-shadow:0 0 18px rgba(0,247,255,.35), inset 0 0 0px rgba(255,255,255,.2);
-    transition:transform .15s ease, box-shadow .15s ease;
+    transition:transform .15s ease, box-shadow .15s ease, opacity .2s ease;
   }
-  #startBtn:hover{ transform:translateY(-1px); box-shadow:0 0 26px rgba(0,247,255,.55); }
-  #startBtn:active{ transform:translateY(0); }
-  #startBtn:disabled{ opacity:.55; cursor:not-allowed; transform:none; box-shadow:none; }
+  #startBtn:hover:not(:disabled){ transform:translateY(-1px); box-shadow:0 0 26px rgba(0,247,255,.55); }
+  #startBtn:active:not(:disabled){ transform:translateY(0); }
+  #startBtn:disabled{ 
+    opacity:.35; 
+    cursor:not-allowed; 
+    transform:none; 
+    box-shadow:none; 
+    filter: grayscale(80%);
+  }
 
   .progress-track{
     width:100%; max-width:420px;
@@ -281,7 +305,6 @@
   .result-cell .label{ font-family:var(--font-mono); font-size:10px; letter-spacing:2px; color:var(--text-mid); text-transform:uppercase;}
   .result-cell .num{ font-family:var(--font-display); font-size:24px; font-weight:800; margin-top:8px; color:var(--cyan);}
 
-  /* Developer Branding Watermark */
   .dev-branding{
     margin-top:40px;
     text-align:center;
@@ -335,9 +358,13 @@
       </div>
 
       <div class="cta-row">
-        <!-- S-Captcha Widget Container -->
-        <div id="scaptcha-widget" style="margin-bottom: 10px;"></div>
-        <button id="startBtn">Start Test</button>
+        <!-- Exact Captcha Positioned Above Button -->
+        <div class="captcha-wrapper">
+          <div class="scaptcha-embed" data-sitekey="sgdev-key" id="scaptcha-container"></div>
+        </div>
+        
+        <!-- Button is Disabled by Default until Captcha Done -->
+        <button id="startBtn" disabled>Complete Verification First</button>
       </div>
       <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
     </div>
@@ -388,13 +415,23 @@
     </div>
   </div>
 
-  <!-- Developer Branding -->
   <div class="dev-branding">VELOCITY BY SHUBHOMOY (SGDEV)</div>
 
   <footer>SIGNAL SOURCED VIA CLOUDFLARE EDGE &middot; PROTECTED BY S-CAPTCHA</footer>
 </div>
 
 <script>
+// S-Captcha Verification Callback Bridge
+let isCaptchaVerified = false;
+
+// Function called when user solves S-Captcha
+window.onSCaptchaSuccess = function(token) {
+  isCaptchaVerified = true;
+  const btn = document.getElementById("startBtn");
+  btn.disabled = false;
+  btn.innerText = "Start Test";
+};
+
 (function(){
   "use strict";
 
@@ -783,9 +820,9 @@
   }
 
   async function runFullTest(){
-    // Optional S-Captcha Verification Check (if widget exposes validation)
-    if(typeof window.scaptchaValidated !== 'undefined' && !window.scaptchaValidated){
-      alert("Please complete the S-Captcha verification first!");
+    // Strict Verification Guard
+    if(!isCaptchaVerified && !window.scaptchaVerified) {
+      alert("Please complete the S-Captcha first!");
       return;
     }
 
