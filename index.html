@@ -402,8 +402,7 @@
   ];
   const DOWN_URL    = "https://speed.cloudflare.com/__down";
   const UP_URL      = "https://speed.cloudflare.com/__up";
-  const PING_SAMPLES = 12;
-  const PING_RETRIES = 2;
+  const PING_SAMPLES = 7; // 5-8 sequential pings
   const DOWNLOAD_DURATION_MS = 7000;
   const UPLOAD_DURATION_MS   = 7000;
   const DOWNLOAD_STREAMS = 4;
@@ -595,33 +594,41 @@
   }
 
   /* ============ PING + JITTER ============ */
-  // Bug fix: reading the trace endpoint's body cross-origin can fail CORS checks
-  // (fetch rejects before performance.now() timing is usable). We only need the
-  // round-trip TIME, not the response content, so we request in `no-cors` mode:
-  // the browser still completes the network round trip and resolves the promise
-  // with an opaque response, which is exactly enough for accurate RTT timing and
-  // sidesteps the CORS failure that was zeroing out ping/jitter.
-  async function timedPing(url){
+  // Root cause of the "0 samples" bug: cdn-cgi/trace does not consistently send
+  // CORS headers to third-party origins, so even a no-cors probe was failing at
+  // the network layer for some hosts/networks — the fetch never resolved at all.
+  // Fix: probe a short candidate list once, keep whichever one actually answers,
+  // and reuse that single endpoint for every timed sample. __down (already proven
+  // to work in this deployment, since Download is working) is included as the
+  // final fallback so ping/jitter can never be stuck at 0 as long as the
+  // connection itself is up.
+  const PING_CANDIDATES = [
+    "https://speed.cloudflare.com/cdn-cgi/trace",
+    "https://1.1.1.1/cdn-cgi/trace",
+    `${DOWN_URL}?bytes=1000`
+  ];
+
+  async function timedRequest(url){
+    const sep = url.includes("?") ? "&" : "?";
     const t0 = performance.now();
-    await fetch(`${url}?nocache=${Date.now()}_${Math.random()}`, {
+    const res = await fetch(`${url}${sep}nocache=${Date.now()}_${Math.random()}`, {
       cache: "no-store",
-      mode: "no-cors"
+      mode: "cors"
     });
+    // Fully drain the (tiny) body so the timer captures the complete round trip,
+    // not just the time-to-first-byte.
+    await res.arrayBuffer().catch(() => {});
     return performance.now() - t0;
   }
 
-  async function pingOnce(){
-    let lastErr = null;
-    for(const url of TRACE_URLS){
-      for(let attempt=0; attempt<=PING_RETRIES; attempt++){
-        try{
-          return await timedPing(url);
-        }catch(e){
-          lastErr = e;
-        }
-      }
+  async function findReachablePingEndpoint(){
+    for(const url of PING_CANDIDATES){
+      try{
+        await timedRequest(url); // warm-up probe, result discarded
+        return url;
+      }catch(e){ /* try next candidate */ }
     }
-    throw lastErr || new Error("All trace endpoints unreachable");
+    return null;
   }
 
   async function measurePing(){
@@ -631,14 +638,16 @@
     let last = null;
     let jitterSum = 0, jitterCount = 0;
 
+    const activeUrl = await findReachablePingEndpoint();
+
     for(let i=0; i<PING_SAMPLES; i++){
       let rtt;
       try{
-        rtt = await pingOnce();
+        if(!activeUrl) throw new Error("no reachable ping endpoint");
+        rtt = await timedRequest(activeUrl);
       }catch(e){
-        // genuinely offline / all endpoints unreachable — skip this sample
         setProgress((i+1)/PING_SAMPLES * 15);
-        continue;
+        continue; // skip this sample, keep going
       }
 
       pingSamples.push(rtt);
@@ -653,7 +662,7 @@
       const liveAvg = pingSamples.reduce((a,b)=>a+b,0)/pingSamples.length;
       mPing.innerHTML = liveAvg.toFixed(1) + "<small>ms</small>";
       setProgress((i+1)/PING_SAMPLES * 15); // ping = first 15% of overall progress
-      await new Promise(r=>setTimeout(r, 60));
+      await new Promise(r=>setTimeout(r, 80));
     }
 
     const avgPing = pingSamples.length ? pingSamples.reduce((a,b)=>a+b,0) / pingSamples.length : 0;
