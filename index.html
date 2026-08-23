@@ -395,15 +395,20 @@
   "use strict";
 
   /* ============ CONFIG ============ */
-  const TRACE_URL   = "https://speed.cloudflare.com/cdn-cgi/trace";
+  // Two trace mirrors — both CORS-friendly for timing purposes (see measurePing).
+  const TRACE_URLS  = [
+    "https://speed.cloudflare.com/cdn-cgi/trace",
+    "https://1.1.1.1/cdn-cgi/trace"
+  ];
   const DOWN_URL    = "https://speed.cloudflare.com/__down";
   const UP_URL      = "https://speed.cloudflare.com/__up";
   const PING_SAMPLES = 12;
+  const PING_RETRIES = 2;
   const DOWNLOAD_DURATION_MS = 7000;
   const UPLOAD_DURATION_MS   = 7000;
   const DOWNLOAD_STREAMS = 4;
   const UPLOAD_STREAMS   = 3;
-  const DOWNLOAD_CHUNK_BYTES = 25 * 1000 * 1000; // 25MB per request, streamed
+  const DOWNLOAD_CHUNK_BYTES = 10 * 1000 * 1000; // 10MB per request, streamed
   const UPLOAD_CHUNK_BYTES   = 4 * 1000 * 1000;  // 4MB payload per POST
   const GAUGE_MAX_MBPS = 500; // scale cap, auto-extends if exceeded
 
@@ -590,6 +595,35 @@
   }
 
   /* ============ PING + JITTER ============ */
+  // Bug fix: reading the trace endpoint's body cross-origin can fail CORS checks
+  // (fetch rejects before performance.now() timing is usable). We only need the
+  // round-trip TIME, not the response content, so we request in `no-cors` mode:
+  // the browser still completes the network round trip and resolves the promise
+  // with an opaque response, which is exactly enough for accurate RTT timing and
+  // sidesteps the CORS failure that was zeroing out ping/jitter.
+  async function timedPing(url){
+    const t0 = performance.now();
+    await fetch(`${url}?nocache=${Date.now()}_${Math.random()}`, {
+      cache: "no-store",
+      mode: "no-cors"
+    });
+    return performance.now() - t0;
+  }
+
+  async function pingOnce(){
+    let lastErr = null;
+    for(const url of TRACE_URLS){
+      for(let attempt=0; attempt<=PING_RETRIES; attempt++){
+        try{
+          return await timedPing(url);
+        }catch(e){
+          lastErr = e;
+        }
+      }
+    }
+    throw lastErr || new Error("All trace endpoints unreachable");
+  }
+
   async function measurePing(){
     setPhase("PING");
     setStatus(true, "MEASURING PING");
@@ -598,12 +632,15 @@
     let jitterSum = 0, jitterCount = 0;
 
     for(let i=0; i<PING_SAMPLES; i++){
-      const t0 = performance.now();
+      let rtt;
       try{
-        await fetch(`${TRACE_URL}?nocache=${Date.now()}`, { cache: "no-store", mode: "cors" });
-      }catch(e){ /* skip failed sample */ continue; }
-      const t1 = performance.now();
-      const rtt = t1 - t0;
+        rtt = await pingOnce();
+      }catch(e){
+        // genuinely offline / all endpoints unreachable — skip this sample
+        setProgress((i+1)/PING_SAMPLES * 15);
+        continue;
+      }
+
       pingSamples.push(rtt);
       drawPingGraph();
 
@@ -619,7 +656,7 @@
       await new Promise(r=>setTimeout(r, 60));
     }
 
-    const avgPing = pingSamples.reduce((a,b)=>a+b,0) / Math.max(pingSamples.length,1);
+    const avgPing = pingSamples.length ? pingSamples.reduce((a,b)=>a+b,0) / pingSamples.length : 0;
     const avgJitter = jitterCount ? jitterSum / jitterCount : 0;
     mPing.innerHTML = avgPing.toFixed(1) + "<small>ms</small>";
     mJitter.innerHTML = avgJitter.toFixed(1) + "<small>ms</small>";
@@ -657,10 +694,14 @@
     async function streamWorker(){
       while(!stop){
         try{
+          // NOTE: only "cache" (a fetch *option*, not a header) and the cache-busting
+          // query string are used here. Adding a real Cache-Control *header* makes
+          // this a non-simple request, which triggers a CORS preflight (OPTIONS) —
+          // that preflight was failing and silently killing every download chunk,
+          // which is why download stayed at 0.0 Mbps. Dropping it fixes that.
           const res = await fetch(`${DOWN_URL}?bytes=${DOWNLOAD_CHUNK_BYTES}&nocache=${Date.now()}_${Math.random()}`, {
             cache: "no-store",
-            mode: "cors",
-            headers: { "Cache-Control": "no-cache" }
+            mode: "cors"
           });
           if(!res.ok || !res.body){ break; }
           const reader = res.body.getReader();
@@ -752,7 +793,7 @@
   /* ============ SERVER INFO (from trace) ============ */
   async function fetchServerInfo(){
     try{
-      const res = await fetch(`${TRACE_URL}?nocache=${Date.now()}`, { cache: "no-store", mode: "cors" });
+      const res = await fetch(`${TRACE_URLS[0]}?nocache=${Date.now()}`, { cache: "no-store", mode: "cors" });
       const txt = await res.text();
       const map = {};
       txt.trim().split("\n").forEach(line => {
@@ -766,6 +807,10 @@
   }
 
   /* ============ MAIN RUN ============ */
+  // Each phase is awaited fully (including its own internal workers/tickers via
+  // Promise.race/Promise.all inside testDownload/testUpload) before the next
+  // phase starts, and the results card is only populated once every phase's
+  // promise has actually settled — never from a value read mid-flight.
   async function runFullTest(){
     startBtn.disabled = true;
     resultsCard.classList.remove("show");
@@ -778,10 +823,32 @@
 
     fetchServerInfo();
 
-    const { ping, jitter } = await measurePing();
-    const down = await testDownload();
-    const up = await testUpload();
+    let ping = 0, jitter = 0, down = 0, up = 0;
 
+    // --- Phase 1: Ping/Jitter — must fully complete before download starts ---
+    try{
+      const pingResult = await measurePing();
+      ping = pingResult.ping;
+      jitter = pingResult.jitter;
+    }catch(e){
+      console.error("Ping phase failed:", e);
+    }
+
+    // --- Phase 2: Download — must fully complete before upload starts ---
+    try{
+      down = await testDownload();
+    }catch(e){
+      console.error("Download phase failed:", e);
+    }
+
+    // --- Phase 3: Upload — must fully complete before results render ---
+    try{
+      up = await testUpload();
+    }catch(e){
+      console.error("Upload phase failed:", e);
+    }
+
+    // --- Render: only happens once all three phases above have settled ---
     setProgress(100);
     setPhase("COMPLETE");
     setStatus(false, "TEST COMPLETE");
