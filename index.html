@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>VELOCITY // Net Diagnostic</title>
+
+<!-- S-Captcha Widget Integration -->
+<script src="https://www.scaptua.duckdns.org/3-widgit.js" async defer></script>
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800;900&family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -38,7 +42,6 @@
     overflow-x:hidden;
     position:relative;
   }
-  /* scanline + grid overlay */
   body::before{
     content:"";
     position:fixed; inset:0;
@@ -67,7 +70,6 @@
     padding:36px 20px 80px;
   }
 
-  /* ---------- HEADER ---------- */
   header{
     display:flex; align-items:flex-end; justify-content:space-between;
     flex-wrap:wrap; gap:16px;
@@ -115,7 +117,6 @@
   .status-chip.live{ color:var(--green); border-color:rgba(57,255,157,.35);}
   @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.35;} }
 
-  /* ---------- MAIN GRID ---------- */
   .stage{
     display:grid;
     grid-template-columns: 1.1fr .9fr;
@@ -148,7 +149,6 @@
   }
   .corner-tag{ color:var(--text-dim); font-size:10px; }
 
-  /* ---------- GAUGE ---------- */
   .gauge-panel{ display:flex; flex-direction:column; align-items:center; }
   #gaugeCanvas{ width:100%; max-width:420px; height:auto; display:block; }
   .gauge-readout{ text-align:center; margin-top:-38px; position:relative; z-index:2;}
@@ -178,9 +178,9 @@
     min-height:16px;
   }
 
-  .cta-row{ margin-top:22px; display:flex; gap:12px; width:100%; max-width:420px; }
+  .cta-row{ margin-top:22px; display:flex; flex-direction:column; gap:12px; width:100%; max-width:420px; align-items:center; }
   #startBtn{
-    flex:1;
+    width:100%;
     cursor:pointer;
     font-family:var(--font-display);
     font-weight:800;
@@ -200,14 +200,6 @@
   #startBtn:hover{ transform:translateY(-1px); box-shadow:0 0 26px rgba(0,247,255,.55); }
   #startBtn:active{ transform:translateY(0); }
   #startBtn:disabled{ opacity:.55; cursor:not-allowed; transform:none; box-shadow:none; }
-  #startBtn::after{
-    content:"";
-    position:absolute; top:0; left:-60%; width:40%; height:100%;
-    background:linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent);
-    transform:skewX(-20deg);
-    animation:sweep 2.6s infinite;
-  }
-  @keyframes sweep{ 0%{ left:-60%;} 100%{ left:130%;} }
 
   .progress-track{
     width:100%; max-width:420px;
@@ -225,7 +217,6 @@
     transition:width .25s ease;
   }
 
-  /* ---------- SIDE PANEL: metrics + ping graph ---------- */
   .side{ display:flex; flex-direction:column; gap:24px; }
 
   .metrics-grid{
@@ -262,7 +253,6 @@
 
   #pingGraph{ width:100%; height:120px; display:block; }
 
-  /* ---------- RESULTS CARD ---------- */
   .results{
     margin-top:24px;
     border:1px solid var(--line);
@@ -290,13 +280,22 @@
   .result-cell{ text-align:center; padding:14px 8px; border:1px solid var(--line); border-radius:4px; }
   .result-cell .label{ font-family:var(--font-mono); font-size:10px; letter-spacing:2px; color:var(--text-mid); text-transform:uppercase;}
   .result-cell .num{ font-family:var(--font-display); font-size:24px; font-weight:800; margin-top:8px; color:var(--cyan);}
-  .result-cell:nth-child(1) .num{ color:var(--amber);}
-  .result-cell:nth-child(2) .num{ color:var(--violet);}
-  .result-cell:nth-child(3) .num{ color:var(--cyan);}
-  .result-cell:nth-child(4) .num{ color:var(--magenta);}
+
+  /* Developer Branding Watermark */
+  .dev-branding{
+    margin-top:40px;
+    text-align:center;
+    font-family:var(--font-display);
+    font-size:14px;
+    font-weight:800;
+    letter-spacing:3px;
+    color:var(--cyan);
+    text-shadow:0 0 10px rgba(0,247,255,0.5);
+    text-transform:uppercase;
+  }
 
   footer{
-    margin-top:50px;
+    margin-top:12px;
     text-align:center;
     font-family:var(--font-mono);
     font-size:11px;
@@ -336,12 +335,14 @@
       </div>
 
       <div class="cta-row">
+        <!-- S-Captcha Widget Container -->
+        <div id="scaptcha-widget" style="margin-bottom: 10px;"></div>
         <button id="startBtn">Start Test</button>
       </div>
       <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
     </div>
 
-    <!-- SIDE: METRICS + GRAPH -->
+    <!-- SIDE PANEL -->
     <div class="side">
       <div class="panel">
         <div class="panel-title"><span>Live Metrics</span><span class="corner-tag" id="serverTag">--</span></div>
@@ -387,31 +388,30 @@
     </div>
   </div>
 
-  <footer>SIGNAL SOURCED VIA CLOUDFLARE EDGE &middot; ALL MEASUREMENTS LOCAL TO YOUR BROWSER</footer>
+  <!-- Developer Branding -->
+  <div class="dev-branding">VELOCITY BY SHUBHOMOY (SGDEV)</div>
+
+  <footer>SIGNAL SOURCED VIA CLOUDFLARE EDGE &middot; PROTECTED BY S-CAPTCHA</footer>
 </div>
 
 <script>
 (function(){
   "use strict";
 
-  /* ============ CONFIG ============ */
-  // Two trace mirrors — both CORS-friendly for timing purposes (see measurePing).
   const TRACE_URLS  = [
     "https://speed.cloudflare.com/cdn-cgi/trace",
     "https://1.1.1.1/cdn-cgi/trace"
   ];
   const DOWN_URL    = "https://speed.cloudflare.com/__down";
   const UP_URL      = "https://speed.cloudflare.com/__up";
-  const PING_SAMPLES = 7; // 5-8 sequential pings
+  const PING_SAMPLES = 7;
   const DOWNLOAD_DURATION_MS = 7000;
   const UPLOAD_DURATION_MS   = 7000;
   const DOWNLOAD_STREAMS = 4;
   const UPLOAD_STREAMS   = 3;
-  const DOWNLOAD_CHUNK_BYTES = 10 * 1000 * 1000; // 10MB per request, streamed
-  const UPLOAD_CHUNK_BYTES   = 4 * 1000 * 1000;  // 4MB payload per POST
-  const GAUGE_MAX_MBPS = 500; // scale cap, auto-extends if exceeded
+  const DOWNLOAD_CHUNK_BYTES = 10 * 1000 * 1000;
+  const UPLOAD_CHUNK_BYTES   = 4 * 1000 * 1000;
 
-  /* ============ DOM ============ */
   const $ = (id) => document.getElementById(id);
   const startBtn   = $("startBtn");
   const statusChip = $("statusChip");
@@ -427,21 +427,19 @@
   const rPing = $("rPing"), rJitter = $("rJitter"), rDown = $("rDown"), rUp = $("rUp");
   const resultTs = $("resultTs");
 
-  /* ============ GAUGE CANVAS ============ */
   const gaugeCanvas = $("gaugeCanvas");
   const gctx = gaugeCanvas.getContext("2d");
-  let currentGaugeSpeed = 0;   // actual measured value
-  let displayedGaugeSpeed = 0; // eased value for smooth animation
+  let currentGaugeSpeed = 0;
+  let displayedGaugeSpeed = 0;
   let gaugeMax = 100;
 
   function drawGauge(){
     const W = gaugeCanvas.width, H = gaugeCanvas.height;
     gctx.clearRect(0,0,W,H);
     const cx = W/2, cy = H*0.86, radius = W*0.42;
-    const startAngle = Math.PI * 1.0;   // 180deg (left)
-    const endAngle   = Math.PI * 2.0;   // 360deg (right) -> sweeps top half
+    const startAngle = Math.PI * 1.0;
+    const endAngle   = Math.PI * 2.0;
 
-    // background track
     gctx.beginPath();
     gctx.arc(cx, cy, radius, startAngle, endAngle);
     gctx.lineWidth = 16;
@@ -449,7 +447,6 @@
     gctx.lineCap = "round";
     gctx.stroke();
 
-    // ease displayed value toward current
     displayedGaugeSpeed += (currentGaugeSpeed - displayedGaugeSpeed) * 0.12;
     if (displayedGaugeSpeed > gaugeMax * 0.92) gaugeMax = displayedGaugeSpeed / 0.92;
     if (gaugeMax < 50) gaugeMax = 50;
@@ -457,7 +454,6 @@
     const pct = Math.max(0, Math.min(1, displayedGaugeSpeed / gaugeMax));
     const valueAngle = startAngle + pct * (endAngle - startAngle);
 
-    // active arc with gradient + glow
     const grad = gctx.createLinearGradient(0, 0, W, 0);
     grad.addColorStop(0, "#ff2ea8");
     grad.addColorStop(0.5, "#8b5cf6");
@@ -473,7 +469,6 @@
     gctx.stroke();
     gctx.restore();
 
-    // tick marks
     const ticks = 10;
     for(let i=0; i<=ticks; i++){
       const a = startAngle + (i/ticks) * (endAngle - startAngle);
@@ -487,7 +482,6 @@
       gctx.stroke();
     }
 
-    // needle
     const needleLen = radius - 30;
     const nx = cx + Math.cos(valueAngle) * needleLen;
     const ny = cy + Math.sin(valueAngle) * needleLen;
@@ -509,7 +503,6 @@
     gctx.shadowBlur = 10;
     gctx.fill();
 
-    // scale labels
     gctx.fillStyle = "rgba(127,163,194,0.7)";
     gctx.font = "11px 'Share Tech Mono', monospace";
     gctx.textAlign = "center";
@@ -525,7 +518,6 @@
   }
   requestAnimationFrame(gaugeLoop);
 
-  /* ============ PING GRAPH CANVAS ============ */
   const pingCanvas = $("pingGraph");
   const pctx = pingCanvas.getContext("2d");
   let pingSamples = [];
@@ -534,7 +526,6 @@
     const W = pingCanvas.width, H = pingCanvas.height;
     pctx.clearRect(0,0,W,H);
 
-    // grid
     pctx.strokeStyle = "rgba(0,247,255,0.08)";
     pctx.lineWidth = 1;
     for(let i=0;i<=4;i++){
@@ -560,7 +551,6 @@
     pctx.stroke();
     pctx.shadowBlur = 0;
 
-    // fill under line
     pctx.lineTo(W, H); pctx.lineTo(0,H); pctx.closePath();
     const g = pctx.createLinearGradient(0,0,0,H);
     g.addColorStop(0, "rgba(255,179,0,0.25)");
@@ -571,7 +561,6 @@
     pingCountEl.textContent = pingSamples.length + " samples";
   }
 
-  /* ============ HELPERS ============ */
   function setPhase(text){
     phaseTag.textContent = text;
     gaugePhase.textContent = text;
@@ -585,7 +574,6 @@
   }
   function randomBuffer(bytes){
     const buf = new Uint8Array(bytes);
-    // fast fill: crypto.getRandomValues has a 65536-byte cap per call
     const CHUNK = 65536;
     for(let o=0; o<bytes; o+=CHUNK){
       crypto.getRandomValues(buf.subarray(o, Math.min(o+CHUNK, bytes)));
@@ -593,15 +581,6 @@
     return buf;
   }
 
-  /* ============ PING + JITTER ============ */
-  // Root cause of the "0 samples" bug: cdn-cgi/trace does not consistently send
-  // CORS headers to third-party origins, so even a no-cors probe was failing at
-  // the network layer for some hosts/networks — the fetch never resolved at all.
-  // Fix: probe a short candidate list once, keep whichever one actually answers,
-  // and reuse that single endpoint for every timed sample. __down (already proven
-  // to work in this deployment, since Download is working) is included as the
-  // final fallback so ping/jitter can never be stuck at 0 as long as the
-  // connection itself is up.
   const PING_CANDIDATES = [
     "https://speed.cloudflare.com/cdn-cgi/trace",
     "https://1.1.1.1/cdn-cgi/trace",
@@ -615,8 +594,6 @@
       cache: "no-store",
       mode: "cors"
     });
-    // Fully drain the (tiny) body so the timer captures the complete round trip,
-    // not just the time-to-first-byte.
     await res.arrayBuffer().catch(() => {});
     return performance.now() - t0;
   }
@@ -624,9 +601,9 @@
   async function findReachablePingEndpoint(){
     for(const url of PING_CANDIDATES){
       try{
-        await timedRequest(url); // warm-up probe, result discarded
+        await timedRequest(url);
         return url;
-      }catch(e){ /* try next candidate */ }
+      }catch(e){}
     }
     return null;
   }
@@ -647,7 +624,7 @@
         rtt = await timedRequest(activeUrl);
       }catch(e){
         setProgress((i+1)/PING_SAMPLES * 15);
-        continue; // skip this sample, keep going
+        continue;
       }
 
       pingSamples.push(rtt);
@@ -661,7 +638,7 @@
 
       const liveAvg = pingSamples.reduce((a,b)=>a+b,0)/pingSamples.length;
       mPing.innerHTML = liveAvg.toFixed(1) + "<small>ms</small>";
-      setProgress((i+1)/PING_SAMPLES * 15); // ping = first 15% of overall progress
+      setProgress((i+1)/PING_SAMPLES * 15);
       await new Promise(r=>setTimeout(r, 80));
     }
 
@@ -672,7 +649,6 @@
     return { ping: avgPing, jitter: avgJitter };
   }
 
-  /* ============ DOWNLOAD TEST ============ */
   async function testDownload(){
     setPhase("DOWNLOAD");
     setStatus(true, "TESTING DOWNLOAD");
@@ -690,24 +666,18 @@
       return (totalBytes * 8) / elapsed / 1_000_000;
     }
 
-    // UI ticker - updates gauge + metric without blocking network work
     const ticker = setInterval(() => {
       const mbps = bytesToMbpsWindowed();
       currentGaugeSpeed = mbps;
       peakMbps = Math.max(peakMbps, mbps);
       mDown.innerHTML = mbps.toFixed(1) + "<small>Mbps</small>";
       const elapsed = performance.now() - startTime;
-      setProgress(15 + Math.min(elapsed / DOWNLOAD_DURATION_MS, 1) * 45); // 15%-60%
+      setProgress(15 + Math.min(elapsed / DOWNLOAD_DURATION_MS, 1) * 45);
     }, 150);
 
     async function streamWorker(){
       while(!stop){
         try{
-          // NOTE: only "cache" (a fetch *option*, not a header) and the cache-busting
-          // query string are used here. Adding a real Cache-Control *header* makes
-          // this a non-simple request, which triggers a CORS preflight (OPTIONS) —
-          // that preflight was failing and silently killing every download chunk,
-          // which is why download stayed at 0.0 Mbps. Dropping it fixes that.
           const res = await fetch(`${DOWN_URL}?bytes=${DOWNLOAD_CHUNK_BYTES}&nocache=${Date.now()}_${Math.random()}`, {
             cache: "no-store",
             mode: "cors"
@@ -721,7 +691,6 @@
             if(performance.now() - startTime > DOWNLOAD_DURATION_MS){ stop = true; try{ await reader.cancel(); }catch(e){} break; }
           }
         }catch(e){
-          // network hiccup - brief backoff then retry unless stopped
           if(!stop) await new Promise(r=>setTimeout(r, 200));
         }
       }
@@ -741,7 +710,6 @@
     return finalMbps;
   }
 
-  /* ============ UPLOAD TEST ============ */
   async function testUpload(){
     setPhase("UPLOAD");
     setStatus(true, "TESTING UPLOAD");
@@ -764,7 +732,7 @@
       currentGaugeSpeed = mbps;
       mUp.innerHTML = mbps.toFixed(1) + "<small>Mbps</small>";
       const elapsed = performance.now() - startTime;
-      setProgress(60 + Math.min(elapsed / UPLOAD_DURATION_MS, 1) * 40); // 60%-100%
+      setProgress(60 + Math.min(elapsed / UPLOAD_DURATION_MS, 1) * 40);
     }, 150);
 
     async function uploadWorker(){
@@ -799,7 +767,6 @@
     return finalMbps;
   }
 
-  /* ============ SERVER INFO (from trace) ============ */
   async function fetchServerInfo(){
     try{
       const res = await fetch(`${TRACE_URLS[0]}?nocache=${Date.now()}`, { cache: "no-store", mode: "cors" });
@@ -815,12 +782,13 @@
     }
   }
 
-  /* ============ MAIN RUN ============ */
-  // Each phase is awaited fully (including its own internal workers/tickers via
-  // Promise.race/Promise.all inside testDownload/testUpload) before the next
-  // phase starts, and the results card is only populated once every phase's
-  // promise has actually settled — never from a value read mid-flight.
   async function runFullTest(){
+    // Optional S-Captcha Verification Check (if widget exposes validation)
+    if(typeof window.scaptchaValidated !== 'undefined' && !window.scaptchaValidated){
+      alert("Please complete the S-Captcha verification first!");
+      return;
+    }
+
     startBtn.disabled = true;
     resultsCard.classList.remove("show");
     mPing.innerHTML = "--<small>ms</small>";
@@ -834,7 +802,6 @@
 
     let ping = 0, jitter = 0, down = 0, up = 0;
 
-    // --- Phase 1: Ping/Jitter — must fully complete before download starts ---
     try{
       const pingResult = await measurePing();
       ping = pingResult.ping;
@@ -843,21 +810,18 @@
       console.error("Ping phase failed:", e);
     }
 
-    // --- Phase 2: Download — must fully complete before upload starts ---
     try{
       down = await testDownload();
     }catch(e){
       console.error("Download phase failed:", e);
     }
 
-    // --- Phase 3: Upload — must fully complete before results render ---
     try{
       up = await testUpload();
     }catch(e){
       console.error("Upload phase failed:", e);
     }
 
-    // --- Render: only happens once all three phases above have settled ---
     setProgress(100);
     setPhase("COMPLETE");
     setStatus(false, "TEST COMPLETE");
