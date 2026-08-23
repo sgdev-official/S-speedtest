@@ -5,9 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>VELOCITY // Net Diagnostic</title>
 
-<!-- S-Captcha Widget Script Integration -->
-<script src="https://www.scaptua.duckdns.org/3-widgit.js" async defer></script>
-
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800;900&family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -188,15 +185,6 @@
     align-items:center; 
   }
 
-  /* Captcha Box Layout Fix */
-  .captcha-wrapper {
-    width: 100%;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    min-height: 75px;
-  }
-
   #startBtn{
     width:100%;
     cursor:pointer;
@@ -212,7 +200,7 @@
     text-transform:uppercase;
     position:relative;
     overflow:hidden;
-    box-shadow:0 0 18px rgba(0,247,255,.35), inset 0 0 0px rgba(255,255,255,.2);
+    box-shadow:0 0 18px rgba(0,247,255,.35);
     transition:transform .15s ease, box-shadow .15s ease, opacity .2s ease;
   }
   #startBtn:hover:not(:disabled){ transform:translateY(-1px); box-shadow:0 0 26px rgba(0,247,255,.55); }
@@ -358,13 +346,7 @@
       </div>
 
       <div class="cta-row">
-        <!-- Exact Captcha Positioned Above Button -->
-        <div class="captcha-wrapper">
-          <div class="scaptcha-embed" data-sitekey="sgdev-key" id="scaptcha-container"></div>
-        </div>
-        
-        <!-- Button is Disabled by Default until Captcha Done -->
-        <button id="startBtn" disabled>Complete Verification First</button>
+        <button id="startBtn">Start Test</button>
       </div>
       <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
     </div>
@@ -421,17 +403,6 @@
 </div>
 
 <script>
-// S-Captcha Verification Callback Bridge
-let isCaptchaVerified = false;
-
-// Function called when user solves S-Captcha
-window.onSCaptchaSuccess = function(token) {
-  isCaptchaVerified = true;
-  const btn = document.getElementById("startBtn");
-  btn.disabled = false;
-  btn.innerText = "Start Test";
-};
-
 (function(){
   "use strict";
 
@@ -820,12 +791,6 @@ window.onSCaptchaSuccess = function(token) {
   }
 
   async function runFullTest(){
-    // Strict Verification Guard
-    if(!isCaptchaVerified && !window.scaptchaVerified) {
-      alert("Please complete the S-Captcha first!");
-      return;
-    }
-
     startBtn.disabled = true;
     resultsCard.classList.remove("show");
     mPing.innerHTML = "--<small>ms</small>";
